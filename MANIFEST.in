@@ -1,0 +1,18 @@
+include MANIFEST.in
+include requirements.txt
+include *.json
+include *.md
+include *.py
+include *.txt
+recursive-include neosconnect *.css
+recursive-include neosconnect *.csv
+recursive-include neosconnect *.html
+recursive-include neosconnect *.ico
+recursive-include neosconnect *.js
+recursive-include neosconnect *.json
+recursive-include neosconnect *.md
+recursive-include neosconnect *.png
+recursive-include neosconnect *.py
+recursive-include neosconnect *.svg
+recursive-include neosconnect *.txt
+recursive-exclude neosconnect *.pyc
