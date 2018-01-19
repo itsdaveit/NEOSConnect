@@ -5,6 +5,8 @@
 from __future__ import unicode_literals
 from frappe.model.document import Document
 from frappe.utils import csvutils
+from frappe.utils import get_files_path
+from ftplib import FTP
 import frappe
 import glob
 import os
@@ -12,6 +14,57 @@ import csv
 
 
 class NEOSConnectimports(Document):
+
+
+    def import_from_neos_server(self):
+        NEOSConnect_settings = frappe.get_doc("NEOSConnect Settings")
+        ftp = FTP(NEOSConnect_settings.ftp_host)
+        ftp.login(NEOSConnect_settings.ftp_user, NEOSConnect_settings.ftp_pass)
+        filenames = ftp.nlst()
+        to_do_files = []
+        for filename in filenames:
+            if filename.startswith("note_") & filename.endswith(".csv"):
+                to_do_files.append(filename)
+            if filename.startswith("order_") & filename.endswith(".csv"):
+                to_do_files.append(filename)
+        path = (frappe.utils.get_files_path(is_private=1)) + "/neosconnect"
+        if not os.path.exists(path):
+            os.makedirs(path)
+        #gefundene Dateien Verarbeiten
+        run_count = 0
+        for to_do_file in to_do_files:
+            run_count += 1
+            percent = run_count * 100 / len(to_do_files)
+            frappe.publish_progress(percent, "verarbeite Dateien")
+
+            local_filename = path + "/" + to_do_file
+            if os.path.isfile(local_filename):
+                os.remove(local_filename)
+            file_writer = open(local_filename, 'wb')
+            ftp.retrbinary('RETR '+ to_do_file, file_writer.write  )
+            file_writer.close()
+            ftp.delete(to_do_file)
+            self.process_file(to_do_file, path, NEOSConnect_settings)
+            os.remove(local_filename)
+        ftp.quit()
+
+
+    def process_file(self, current_file, path, NEOSConnect_settings):
+        csv_headers = {}
+        csv_headers['NEOS_note'] = ["map_id", "man_name", "man_aid", "desc_short", "price_min", "price_special", "qty_status_max", "item_remarks", "user_name", "sup_name", "sup_id", "sup_aid", "price_amount", "qty_status", "item_qty", "vk_netto"]
+        csv_headers['NEOS_order'] = ["map_id", "sup_name", "sup_id", "sup_aid", "man_name", "man_aid", "desc_short", "ean", "price_requested", "price_confirmed", "qty_requested", "qty_confirmed", "qty_delivered", "item_remark", "user_name", "reference", "customer_po", "order_name", "order_date", "response_date", "order_status"]
+        csv_file = os.path.join(path, current_file)
+        #print("processing " + csv_file)
+        #NEOS Merkzettel
+        if current_file.startswith("note_") & current_file.endswith(".csv"):
+            self.process_csv(csv_file, "NEOS_note", NEOSConnect_settings, csv_headers)
+        #NEOS Bestellungen
+        if current_file.startswith("order_") & current_file.endswith(".csv"):
+            self.process_csv(csv_file, "NEOS_order", NEOSConnect_settings, csv_headers)
+
+
+
+
     def import_from_csv_folder(self):
         NEOSConnect_settings = frappe.get_doc("NEOSConnect Settings")
         #CSV Headers, which we expect
@@ -22,7 +75,12 @@ class NEOSConnectimports(Document):
 
         if NEOSConnect_settings.csv_import_folder != "":
             files = []
-            for file in os.listdir(NEOSConnect_settings.csv_import_folder):
+            run_count = 0
+            files = os.listdir(NEOSConnect_settings.csv_import_folder)
+            for file in files:
+                run_count += 1
+                percent = run_count * 100 / len(files)
+                frappe.publish_progress(percent, "verarbeite Dateien")
                 current_file = os.path.join(NEOSConnect_settings.csv_import_folder, file)
                 #NEOS Merkzettel
                 if file.startswith("note_") & file.endswith(".csv"):
@@ -39,22 +97,26 @@ class NEOSConnectimports(Document):
             frappe.throw("CSV directory error")
 
     def process_csv(self, csv_filename, file_type, NEOSConnect_settings, csv_headers):
-            print "processing " + csv_filename + " as " + file_type
-            csv_rows = []
-            with open(csv_filename, 'r') as csv_file:
-                spamreader = csv.reader(csv_file, delimiter=str(u';'), quotechar=str(u'"'))
-                for row in spamreader:
-                    csv_rows.append(row)
+            if os.path.isfile(csv_filename):
+                print "processing " + csv_filename + " as " + file_type
+                csv_rows = []
 
-            if self.check_csv_format(csv_rows, file_type, csv_headers):
-                print "CSV check OK"
-                csv_rows.pop(0)
-                for row in csv_rows:
-                    item_data = self.assign_item_data(row, csv_headers[file_type])
-                    print item_data
-                    self.create_item(item_data, NEOSConnect_settings)
+                with open(csv_filename, 'r') as csv_file:
+                    spamreader = csv.reader(csv_file, delimiter=str(u';'), quotechar=str(u'"'))
+                    for row in spamreader:
+                        csv_rows.append(row)
+
+                if self.check_csv_format(csv_rows, file_type, csv_headers):
+                    print "CSV check OK"
+                    csv_rows.pop(0)
+                    for row in csv_rows:
+                        item_data = self.assign_item_data(row, csv_headers[file_type])
+                        #print item_data
+                        self.create_item(item_data, NEOSConnect_settings)
+                else:
+                    frappe.throw("Fehler in CSV Datei " + csv_filename)
             else:
-                frappe.throw("Fehler in CSV Datei " + csv_filename)
+                frappe.throw("Datei nicht gefunden: " + csv_filename)
 
     def assign_item_data(self, row, csv_header):
         keys = []
@@ -67,6 +129,20 @@ class NEOSConnectimports(Document):
         item_data = dict(zip(keys, values))
         return item_data
 
+    def calculate_standard_rate(self, item):
+        if "price_amount" in item:
+            if item["price_amount"] != "":
+                if float(item["price_amount"].replace(",",".")) > 0:
+                    return float(item["price_amount"].replace(",",".")) * 1.15
+
+        elif "price_requested" in item:
+            if item["price_requested"] != "":
+                if float(item["price_requested"].replace(",",".")) > 0:
+                    return float(item["price_requested"].replace(",",".")) * 1.15
+        else:
+            return False
+
+
 
     def create_item(self, item_data, NEOSConnect_settings):
 
@@ -74,14 +150,29 @@ class NEOSConnectimports(Document):
         found_items = frappe.get_all("Item", filters={"item_code": item_code }, fields=["name", "item_code"] )
         if len(found_items) >= 1:
             print "Item " + item_code + " allready exists."
+            item_doc = frappe.get_doc("Item", item_code)
+            something_changed = False
+            standard_rate = self.calculate_standard_rate(item_data)
+            if standard_rate != False:
+                if item_doc.standard_rate != standard_rate:
+                    item_doc.standard_rate = standard_rate
+                    something_changed = True
+            if something_changed:
+                item_doc.save()
 
         else:
             item_doc = frappe.get_doc({"doctype": "Item",
-            "item_code": item_code,
-            "item_group": NEOSConnect_settings.destination_item_group,
-            "item_name": item_data["desc_short"]
+                                        "item_code": item_code,
+                                        "item_group": NEOSConnect_settings.destination_item_group,
+                                        "item_name": item_data["desc_short"][:140],
+                                        "is_stock_item": 1
             })
+            standard_rate = self.calculate_standard_rate(item_data)
+            if standard_rate != False:
+                item_doc.standard_rate =  standard_rate
             item_doc.insert()
+
+
 
 
     def check_csv_format(self, csv_rows, file_type, csv_headers):
