@@ -49,7 +49,7 @@ class NEOSConnectimports(Document):
         ftp.quit()
 
 
-    def process_file(self, current_file, path, NEOSConnect_settings):
+    def process_file(self, current_file, path, NEOSConnect_settings, create_po=False):
         csv_headers = {}
         csv_headers['NEOS_note'] = ["map_id", "man_name", "man_aid", "desc_short", "price_min", "price_special", "qty_status_max", "item_remarks", "user_name", "sup_name", "sup_id", "sup_aid", "price_amount", "qty_status", "item_qty", "vk_netto"]
         csv_headers['NEOS_order'] = ["map_id", "sup_name", "sup_id", "sup_aid", "man_name", "man_aid", "desc_short", "ean", "price_requested", "price_confirmed", "qty_requested", "qty_confirmed", "qty_delivered", "item_remark", "user_name", "reference", "customer_po", "order_name", "order_date", "response_date", "order_status"]
@@ -60,7 +60,7 @@ class NEOSConnectimports(Document):
             self.process_csv(csv_file, "NEOS_note", NEOSConnect_settings, csv_headers)
         #NEOS Bestellungen
         if current_file.startswith("order_") & current_file.endswith(".csv"):
-            self.process_csv(csv_file, "NEOS_order", NEOSConnect_settings, csv_headers)
+            self.process_csv(csv_file, "NEOS_order", NEOSConnect_settings, csv_headers, create_po)
 
 
 
@@ -96,7 +96,7 @@ class NEOSConnectimports(Document):
         else:
             frappe.throw("CSV directory error")
 
-    def process_csv(self, csv_filename, file_type, NEOSConnect_settings, csv_headers):
+    def process_csv(self, csv_filename, file_type, NEOSConnect_settings, csv_headers, create_po=False):
             if os.path.isfile(csv_filename):
                 print "processing " + csv_filename + " as " + file_type
                 csv_rows = []
@@ -109,10 +109,16 @@ class NEOSConnectimports(Document):
                 if self.check_csv_format(csv_rows, file_type, csv_headers):
                     print "CSV check OK"
                     csv_rows.pop(0)
+                    item_rows = []
                     for row in csv_rows:
                         item_data = self.assign_item_data(row, csv_headers[file_type])
+                        item_rows.append(item_data)
                         #print item_data
-                        self.create_item(item_data, NEOSConnect_settings)
+                        self.create_item(item_data, NEOSConnect_settings, file_type)
+                    if create_po:
+                        self.set_purchase_order(item_rows)
+
+
                 else:
                     frappe.throw("Fehler in CSV Datei " + csv_filename)
             else:
@@ -144,10 +150,11 @@ class NEOSConnectimports(Document):
 
 
 
-    def create_item(self, item_data, NEOSConnect_settings):
+    def create_item(self, item_data, NEOSConnect_settings, file_type):
 
         item_code = "MAPID-" + item_data["map_id"]
         found_items = frappe.get_all("Item", filters={"item_code": item_code }, fields=["name", "item_code"] )
+        NEOSConnect_Supplier_name = frappe.get_doc("NEOS Lieferant", item_data["sup_name"]).supplier
         if len(found_items) >= 1:
             print "Item " + item_code + " allready exists."
             item_doc = frappe.get_doc("Item", item_code)
@@ -157,23 +164,41 @@ class NEOSConnectimports(Document):
                 if item_doc.standard_rate != standard_rate:
                     item_doc.standard_rate = standard_rate
                     something_changed = True
+            if item_doc.default_supplier != NEOSConnect_Supplier_name:
+                item_doc.default_supplier = NEOSConnect_Supplier_name
+                something_changed = True
             if something_changed:
                 item_doc.save()
-
         else:
             item_doc = frappe.get_doc({"doctype": "Item",
                                         "item_code": item_code,
                                         "item_group": NEOSConnect_settings.destination_item_group,
                                         "item_name": item_data["desc_short"][:140],
+                                        "default_supplier": NEOSConnect_Supplier_name,
                                         "is_stock_item": 1
             })
             standard_rate = self.calculate_standard_rate(item_data)
             if standard_rate != False:
                 item_doc.standard_rate =  standard_rate
             item_doc.insert()
+        if file_type == "NEOS_order":
+            self.set_supplier_item_code(item_data, item_code)
 
+    def set_supplier_item_code(self, item_data, item_code):
+        NEOSConnect_Supplier_name = frappe.get_doc("NEOS Lieferant", item_data["sup_name"]).supplier
+        item_doc = frappe.get_doc("Item", item_code)
 
+        for item_sup in item_doc.supplier_items:
+            #print(item_sup.supplier + " | " + NEOSConnect_Supplier_name + " | " + item_sup.supplier_part_no  + " | " + item_data["sup_aid"])
+            if item_sup.supplier == NEOSConnect_Supplier_name and item_sup.supplier_part_no == item_data["sup_aid"]:
+                    return True
 
+        supplier_item_doc = frappe.get_doc({"doctype": "Item Supplier",
+                                        "parentfield": "supplier_items",
+                                        "supplier": NEOSConnect_Supplier_name,
+                                        "supplier_part_no": item_data["sup_aid"]})
+        item_doc.supplier_items.append(supplier_item_doc)
+        item_doc.save()
 
     def check_csv_format(self, csv_rows, file_type, csv_headers):
         #NEOS Merkzelltel Format prüfen
@@ -187,3 +212,56 @@ class NEOSConnectimports(Document):
                 if len(csv_rows) > 1:
                     return True,
         return False
+
+    def import_orders_from_neos_server(self):
+        NEOSConnect_settings = frappe.get_doc("NEOSConnect Settings")
+        ftp = FTP(NEOSConnect_settings.ftp_host)
+        ftp.login(NEOSConnect_settings.ftp_user, NEOSConnect_settings.ftp_pass)
+        filenames = ftp.nlst()
+        to_do_files = []
+        for filename in filenames:
+            if filename.startswith("order_") & filename.endswith(".csv"):
+                to_do_files.append(filename)
+        path = (frappe.utils.get_files_path(is_private=1)) + "/neosconnect"
+        if not os.path.exists(path):
+            os.makedirs(path)
+        #gefundene Dateien Verarbeiten
+        run_count = 0
+        for to_do_file in to_do_files:
+            run_count += 1
+            percent = run_count * 100 / len(to_do_files)
+            frappe.publish_progress(percent, "verarbeite Dateien")
+            local_filename = path + "/" + to_do_file
+            if os.path.isfile(local_filename):
+                os.remove(local_filename)
+            file_writer = open(local_filename, 'wb')
+            ftp.retrbinary('RETR '+ to_do_file, file_writer.write  )
+            file_writer.close()
+            ftp.delete(to_do_file)
+            self.process_file(to_do_file, path, NEOSConnect_settings, True)
+            os.remove(local_filename)
+        ftp.quit()
+        pass
+
+    def set_purchase_order(self, item_rows):
+        po_title = item_rows[0]["sup_name"] + "-"  + item_rows[0]["customer_po"]
+        found_pos = frappe.get_all("Purchase Order", filters={"title": po_title})
+        if len(found_pos) > 0:
+            frappe.msgprint("Purchase Order " + po_title + " bereits vorhanden.")
+            return False
+
+        po_doc = frappe.get_doc({"doctype": "Purchase Order",
+                                "title": po_title,
+                                "supplier": frappe.get_doc("NEOS Lieferant", item_rows[0]["sup_name"]).supplier,
+                                "taxes_and_charges": "Germany VAT 19%",
+                                "payment_terms_template": "BFS Zentralregulierung"
+                                })
+        for row in item_rows:
+            po_item_doc = frappe.get_doc({"doctype": "Purchase Order Item",
+                                        "item_code": "MAPID-" + row["map_id"],
+                                        "qty": float(row["qty_confirmed"].replace(",",".")),
+                                        "schedule_date": frappe.utils.data.today(),
+                                        "rate": float(row["price_confirmed"].replace(",","."))
+                                        })
+            po_doc.append("items", po_item_doc)
+        po_doc.insert()
