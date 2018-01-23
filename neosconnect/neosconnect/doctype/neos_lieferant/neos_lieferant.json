@@ -9,7 +9,7 @@
  "custom": 0, 
  "docstatus": 0, 
  "doctype": "DocType", 
- "document_type": "Document", 
+ "document_type": "Setup", 
  "editable_grid": 1, 
  "engine": "InnoDB", 
  "fields": [
@@ -507,7 +507,7 @@
  "issingle": 0, 
  "istable": 0, 
  "max_attachments": 0, 
- "modified": "2018-01-13 14:10:06.087805", 
+ "modified": "2018-01-23 12:14:16.869228", 
  "modified_by": "Administrator", 
  "module": "NEOSConnect", 
  "name": "NEOS Lieferant", 
