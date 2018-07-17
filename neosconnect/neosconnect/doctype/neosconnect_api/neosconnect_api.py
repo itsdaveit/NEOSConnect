@@ -19,41 +19,18 @@ class NEOSConnectAPI(Document):
             supplier_dict = {}
             supplier_dict["sup_id"] = supplier["sup_id"]
             supplier_dict["sup_name"] = supplier["sup_name"]
+            supplier_dict["sup_company"] = supplier["sup_company"]
+            supplier_dict["customer_id"] = supplier["customer_id"]
+            supplier_dict["amount"] = float(supplier["shipment"]["amount"])
+            supplier_dict["free_from"] = float(supplier["shipment"]["free_from"])
+            supplier_dict["min_amount"] = float(supplier["shipment"]["min_amount"])
+            supplier_dict["min_to"] = float(supplier["shipment"]["min_to"])
+            supplier_dict["min_order_value"] = float(supplier["shipment"]["min_order_value"])
+            supplier_dict["extra_amount1"] = float(supplier["shipment"]["extra_amount1"])
+            supplier_dict["extra_type1"] = supplier["shipment"]["extra_type1"]
+            supplier_dict["extra_amount2"] = float(supplier["shipment"]["extra_amount2"])
+            supplier_dict["extra_type2"] = supplier["shipment"]["extra_type2"]
 
-            for element in supplier["_raw_elements"]:
-
-                if element.tag.split("}")[1] == "sup_company":
-                    supplier_dict["sup_company"] = element.text
-
-                elif element.tag.split("}")[1] == "customer_id":
-                    supplier_dict["customer_id"] = element.text
-
-                elif element.tag.split("}")[1] == "shipment":
-                    for shipment in element:
-                        if shipment.tag.split("}")[1] == "amount":
-                            supplier_dict["amount"] = float(shipment.text)
-                        elif shipment.tag.split("}")[1] == "free_from":
-                            supplier_dict["free_from"] = float(shipment.text)
-                        elif shipment.tag.split("}")[1] == "min_amount":
-                            supplier_dict["min_amount"] = float(shipment.text)
-                        elif shipment.tag.split("}")[1] == "min_to":
-                            supplier_dict["min_to"] = float(shipment.text)
-                        elif shipment.tag.split("}")[1] == "min_order_value":
-                            supplier_dict["min_order_value"] = float(shipment.text)
-                        elif shipment.tag.split("}")[1] == "extra_amount1":
-                            supplier_dict["extra_amount1"] = float(shipment.text)
-                        elif shipment.tag.split("}")[1] == "extra_type1":
-                            supplier_dict["extra_type1"] = shipment.text
-                        elif shipment.tag.split("}")[1] == "extra_amount2":
-                            supplier_dict["extra_amount2"] = float(shipment.text)
-                        elif shipment.tag.split("}")[1] == "extra_type2":
-                            supplier_dict["extra_type2"] = shipment.text
-
-                elif element.tag.split("}")[1] == "contact":
-                    pass
-
-                elif element.tag.split("}")[1] == "payment":
-                    pass
             suppliers_list.append(supplier_dict)
         return suppliers_list
 
@@ -190,7 +167,8 @@ class NEOSConnectAPI(Document):
 
         request_data = {
         "username": NEOSConnect_settings.neos_user,
-        "password": NEOSConnect_settings.neos_password}
+        "password": NEOSConnect_settings.neos_password,
+        "active": True}
 
         request_data["sid"] = (NEOSClient.service.getSessionID(request_data))
         suppliers_response = (NEOSClient.service.getSuppliers(request_data))["item"]
