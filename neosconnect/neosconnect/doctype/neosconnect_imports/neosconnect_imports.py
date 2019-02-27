@@ -253,6 +253,7 @@ class NEOSConnectimports(Document):
                                 "title": po_title,
                                 "supplier": frappe.get_doc("NEOS Lieferant", item_rows[0]["sup_name"]).supplier,
                                 "set_warehouse": frappe.get_doc("Stock Settings").default_warehouse,
+                                "company": frappe.get_doc("Global Defaults").company,
                                 "taxes_and_charges": "Germany VAT 19%",
                                 "payment_terms_template": "BFS Zentralregulierung"
                                 })
