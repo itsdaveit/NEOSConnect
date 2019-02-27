@@ -71,7 +71,7 @@ class NEOSConnectimports(Document):
         csv_headers = {}
         csv_headers['NEOS_note'] = ["map_id", "man_name", "man_aid", "desc_short", "price_min", "price_special", "qty_status_max", "item_remarks", "user_name", "sup_name", "sup_id", "sup_aid", "price_amount", "qty_status", "item_qty", "vk_netto"]
         csv_headers['NEOS_order'] = ["map_id", "sup_name", "sup_id", "sup_aid", "man_name", "man_aid", "desc_short", "ean", "price_requested", "price_confirmed", "qty_requested", "qty_confirmed", "qty_delivered", "item_remark", "user_name", "reference", "customer_po", "order_name", "order_date", "response_date", "order_status"]
-        print "#####################################"
+
 
         if NEOSConnect_settings.csv_import_folder != "":
             files = []
@@ -98,16 +98,16 @@ class NEOSConnectimports(Document):
 
     def process_csv(self, csv_filename, file_type, NEOSConnect_settings, csv_headers, create_po=False):
             if os.path.isfile(csv_filename):
-                print "processing " + csv_filename + " as " + file_type
+                print("processing " + csv_filename + " as " + file_type)
                 csv_rows = []
 
-                with open(csv_filename, 'r') as csv_file:
+                with open(csv_filename, 'r', encoding='ISO-8859-1') as csv_file:
                     spamreader = csv.reader(csv_file, delimiter=str(u';'), quotechar=str(u'"'))
                     for row in spamreader:
                         csv_rows.append(row)
 
                 if self.check_csv_format(csv_rows, file_type, csv_headers):
-                    print "CSV check OK"
+                    print("CSV check OK")
                     csv_rows.pop(0)
                     item_rows = []
                     for row in csv_rows:
@@ -130,7 +130,6 @@ class NEOSConnectimports(Document):
             keys.append(key)
         values = []
         for value in row:
-            value = value.decode("iso-8859-1")
             values.append(value)
         item_data = dict(zip(keys, values))
         return item_data
@@ -156,7 +155,7 @@ class NEOSConnectimports(Document):
         found_items = frappe.get_all("Item", filters={"item_code": item_code }, fields=["name", "item_code"] )
         NEOSConnect_Supplier_name = frappe.get_doc("NEOS Lieferant", item_data["sup_name"]).supplier
         if len(found_items) >= 1:
-            print "Item " + item_code + " allready exists."
+            print("Item " + item_code + " allready exists.")
             item_doc = frappe.get_doc("Item", item_code)
             something_changed = False
             standard_rate = self.calculate_standard_rate(item_data)
@@ -253,6 +252,7 @@ class NEOSConnectimports(Document):
         po_doc = frappe.get_doc({"doctype": "Purchase Order",
                                 "title": po_title,
                                 "supplier": frappe.get_doc("NEOS Lieferant", item_rows[0]["sup_name"]).supplier,
+                                "set_warehouse": frappe.get_doc("Stock Settings").default_warehouse,
                                 "taxes_and_charges": "Germany VAT 19%",
                                 "payment_terms_template": "BFS Zentralregulierung"
                                 })
