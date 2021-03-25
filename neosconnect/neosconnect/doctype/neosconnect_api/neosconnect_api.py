@@ -122,7 +122,7 @@ class NEOSConnectAPI(Document):
                 "extra_amount2": supplier["extra_amount2"],
                 "extra_type2": supplier["extra_type2"],
                 })
-                print item_doc.insert().sup_name + " Angelegt"
+                #print item_doc.insert().sup_name + " Angelegt"
                 count_NEOS_Lieferanten += 1
 
         return count_NEOS_Lieferanten
